@@ -1,41 +1,106 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import Role, UserProfile
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    role = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all())
 
-    class Meta:
-        model = UserProfile
-        fields = ['role']
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        # Call the parent method to get the token data
+        data = super().validate(attrs)
 
-    def validate_role(self, value):
-        if not Role.objects.filter(id=value.id).exists():
-            raise serializers.ValidationError(f"Invalid pk '{value.id}' - object does not exist.")
-        return value
-        
+        # Get the user object
+        user = self.user
+
+        # Check if the user has a related profile and if the profile has a role
+        try:
+            role_id = user.userprofile.role.id if user.userprofile and user.userprofile.role else None
+        except UserProfile.DoesNotExist:
+            role_id = None
+
+        # Add custom claims (e.g., role_id) to the token payload
+        if role_id:
+            data['role_id'] = role_id
+
+        return data
+      
 class UserSerializer(serializers.ModelSerializer):
-    profile = UserProfileSerializer()
+    phone_no = serializers.SerializerMethodField()
+    role_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'username', 'password', 'email', 'profile']
-        extra_kwargs = {
-            'password': {'write_only': True}
-        }
+        fields = ['id','first_name', 'last_name', 'username', 'email', 'phone_no', 'role_name']
+
+    def get_phone_no(self, obj):
+        try:
+            return obj.userprofile.phone_no
+        except UserProfile.DoesNotExist:
+            return None
+
+    def get_role_name(self, obj):
+        try:
+            return obj.userprofile.role.name if obj.userprofile.role else None
+        except UserProfile.DoesNotExist:
+            return None
 
     def create(self, validated_data):
-        profile_data = validated_data.pop('profile')
-        role_id = profile_data.get('role')
+        role_name = validated_data.pop('role_name')
+        phone_no = validated_data.pop('phone_no')
 
         # Ensure the role exists
         try:
-            role = Role.objects.get(id=role_id.id)
-            print(role)
+            role = Role.objects.get(name=role_name)
         except Role.DoesNotExist:
-            raise serializers.ValidationError({"profile": {"role": [f"Invalid pk '{role_id}' - object does not exist."]}})
+            raise serializers.ValidationError({"role_name": "Invalid role name"})
 
-        # Create the user and associate the role
+        # Create the user
         user = User.objects.create_user(**validated_data)
-        UserProfile.objects.create(user=user, role=role)
+
+        # Create the UserProfile
+        UserProfile.objects.create(user=user, role=role, phone_no=phone_no)
+
         return user
+
+    def update(self, instance, validated_data):
+        phone_no = validated_data.pop('phone_no', None)
+        role_name = validated_data.pop('role_name', None)
+
+        # Update User fields
+        instance.first_name = validated_data.get('first_name', instance.first_name)
+        instance.last_name = validated_data.get('last_name', instance.last_name)
+        instance.username = validated_data.get('username', instance.username)
+        instance.email = validated_data.get('email', instance.email)
+        instance.save()
+
+        # Update or create UserProfile
+        user_profile, created = UserProfile.objects.get_or_create(user=instance)
+        if phone_no:
+            user_profile.phone_no = phone_no
+        if role_name:
+            try:
+                role = Role.objects.get(name=role_name)
+                user_profile.role = role
+            except Role.DoesNotExist:
+                raise serializers.ValidationError({"role_name": "Invalid role name"})
+        user_profile.save()
+
+        return instance
+        
+class RoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
+        fields = "__all__"
+        
+class UserProfileSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(source='user.id')
+    first_name = serializers.CharField(source='user.first_name')
+    last_name = serializers.CharField(source='user.last_name')
+    username = serializers.CharField(source='user.username')
+    email = serializers.EmailField(source='user.email')
+    role_name = serializers.CharField(source='role.name')
+    phone_no = serializers.CharField()
+
+    class Meta:
+        model = UserProfile
+        fields = ['user_id', 'first_name', 'last_name', 'username', 'email', 'role_name', 'phone_no']

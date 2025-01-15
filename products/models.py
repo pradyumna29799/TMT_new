@@ -1,6 +1,9 @@
 from django.db import models
 
 # Create your models here.
+class Unit(models.Model):
+    unit = models.CharField(max_length=256)
+    description = models.TextField(null=True, blank=True)
 
 class Category(models.Model):
     name = models.CharField(max_length=255)
