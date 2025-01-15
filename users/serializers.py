@@ -18,33 +18,31 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         except UserProfile.DoesNotExist:
             role_id = None
 
+        # Check if the role_id is 1 and set the role to "Admin"
+        if role_id == 1:
+            role = "admin"
+        elif role_id == 2:
+            role = "Customer"
+        else:
+            role = None
+
         # Add custom claims (e.g., role_id) to the token payload
-        if role_id:
-            data['role_id'] = role_id
+        if role:
+            data['role_name'] = role
 
         return data
-      
+
+
 class UserSerializer(serializers.ModelSerializer):
-    phone_no = serializers.SerializerMethodField()
-    role_name = serializers.SerializerMethodField()
+    phone_no = serializers.CharField(write_only=True)
+    role_name = serializers.CharField(write_only=True)
 
     class Meta:
         model = User
-        fields = ['id','first_name', 'last_name', 'username', 'email', 'phone_no', 'role_name']
-
-    def get_phone_no(self, obj):
-        try:
-            return obj.userprofile.phone_no
-        except UserProfile.DoesNotExist:
-            return None
-
-    def get_role_name(self, obj):
-        try:
-            return obj.userprofile.role.name if obj.userprofile.role else None
-        except UserProfile.DoesNotExist:
-            return None
+        fields = ['id', 'first_name', 'last_name', 'username', 'email', 'phone_no', 'role_name']
 
     def create(self, validated_data):
+        # Extract the additional fields
         role_name = validated_data.pop('role_name')
         phone_no = validated_data.pop('phone_no')
 
@@ -86,12 +84,12 @@ class UserSerializer(serializers.ModelSerializer):
         user_profile.save()
 
         return instance
-        
+
 class RoleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Role
         fields = "__all__"
-        
+
 class UserProfileSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(source='user.id')
     first_name = serializers.CharField(source='user.first_name')
